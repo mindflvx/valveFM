@@ -84,7 +84,7 @@ GOOS=windows GOARCH=amd64 go build -o valvefm.exe ./cmd/radio-tray
 
 - Launch: `go run ./cmd/radio-tray` starts TUI and tray.
 - Country selector: `L` opens list, filter works, Enter loads stations.
-- Favorites view: `V` opens saved favorites.
+- Favorites view: `V` opens saved favorites also toggles country.
 - Playback: Enter starts audio, Space stops/resumes.
 - Next/Prev: tray controls move station and auto-play.
 - Search: `/` runs server-side search in country mode and local search in favorites mode.

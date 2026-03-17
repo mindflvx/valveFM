@@ -37,6 +37,7 @@ const (
 type Model struct {
 	api       *radio.Client
 	player    player.Backend
+	noise     *player.NoisePlayer
 	favorites *config.Favorites
 	styles    Styles
 	ipc       *ipcServer
@@ -115,7 +116,7 @@ type playerDownloadMsg struct {
 
 type themeSavedMsg struct{ err error }
 
-func NewModel(api *radio.Client, player player.Backend, favorites *config.Favorites, playerErr error, favErr error, themeName string) Model {
+func NewModel(api *radio.Client, p player.Backend, favorites *config.Favorites, playerErr error, favErr error, themeName string) Model {
 	location := textinput.New()
 	location.Prompt = "Country: "
 	location.Placeholder = "US"
@@ -143,7 +144,8 @@ func NewModel(api *radio.Client, player player.Backend, favorites *config.Favori
 
 	m := Model{
 		api:           api,
-		player:        player,
+		player:        p,
+		noise:         player.NewNoisePlayer(),
 		favorites:     favorites,
 		styles:        BuildStyles(theme),
 		theme:         theme,
@@ -180,6 +182,7 @@ func NewModel(api *radio.Client, player player.Backend, favorites *config.Favori
 }
 
 func (m Model) Init() tea.Cmd {
+	m.noise.Start()
 	return tea.Batch(m.loadStationsCmd(), m.startIPCCmd(), m.maybeDownloadPlayerCmd())
 }
 
@@ -197,6 +200,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.player != nil {
 				_ = m.player.Stop()
 			}
+			m.noise.Stop()
 			if m.ipc != nil {
 				m.ipc.Close()
 			}
@@ -273,6 +277,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selected = 0
 			m.loading = true
 			m.errMsg = ""
+			m.noise.Start()
 			return m, m.loadStationsCmd()
 		case "[", "pgup":
 			if m.loading {
@@ -286,10 +291,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selected = 0
 			m.loading = true
 			m.errMsg = ""
+			m.noise.Start()
 			return m, m.loadStationsCmd()
 		case "enter":
 			if station, ok := m.currentStation(); ok {
 				m.errMsg = ""
+				m.noise.Start()
 				return m, m.playStationCmd(station)
 			}
 		case " ":
@@ -301,6 +308,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.lastStation.UUID != "" {
+				m.noise.Start()
 				return m, m.playStationCmd(m.lastStation)
 			}
 			return m, nil
@@ -327,6 +335,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected = 0
 				m.loading = true
 				m.errMsg = ""
+				m.noise.Start()
 				return m, m.loadStationsCmd()
 			}
 			if m.favorites == nil || m.favorites.Count() == 0 {
@@ -341,6 +350,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selected = 0
 			m.loading = true
 			m.errMsg = ""
+			m.noise.Start()
 			return m, m.loadStationsCmd()
 		case "/":
 			// If in favorites view, switch to full station list before searching
@@ -368,6 +378,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.hasMore = false
 						m.selected = 0
 						m.loading = true
+						m.noise.Start()
 						return m, m.loadStationsCmd()
 					}
 				}
@@ -378,6 +389,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.loading = false
+		m.noise.Stop()
 		if msg.err != nil {
 			m.errMsg = msg.err.Error()
 			m.stations = nil
@@ -437,10 +449,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case playMsg:
 		if msg.err != nil {
+			m.noise.Stop()
 			m.errMsg = msg.err.Error()
 			return m, nil
 		}
 		if m.player == nil {
+			m.noise.Stop()
 			if m.downloadingPlayer {
 				m.errMsg = "Audio player not available yet. Downloading ffplay..."
 			} else {
@@ -449,9 +463,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if err := m.player.Play(msg.url); err != nil {
+			m.noise.Stop()
 			m.errMsg = err.Error()
 			return m, nil
 		}
+		m.noise.Stop()
 		m.errMsg = ""
 		m.playing = true
 		m.playingUUID = msg.station.UUID
@@ -681,6 +697,7 @@ func (m Model) updateLocationInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.search.SetValue("")
 			m.loading = true
 			m.errMsg = ""
+			m.noise.Start()
 			return m, m.loadStationsCmd()
 		case "esc":
 			m.inputMode = inputNone
@@ -707,6 +724,7 @@ func (m Model) updateSearchInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selected = 0
 			m.loading = true
 			m.errMsg = ""
+			m.noise.Start()
 			return m, m.loadStationsCmd()
 		case "esc":
 			m.inputMode = inputNone
@@ -744,6 +762,7 @@ func (m Model) updateCountrySelect(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.search.SetValue("")
 				m.loading = true
 				m.errMsg = ""
+				m.noise.Start()
 				return m, m.loadStationsCmd()
 			}
 		case "esc":
@@ -782,6 +801,7 @@ func (m Model) handleIPC(msg ipcMsg) (tea.Model, tea.Cmd) {
 		if m.player != nil {
 			_ = m.player.Stop()
 		}
+		m.noise.Stop()
 		if m.ipc != nil {
 			m.ipc.Close()
 		}
@@ -811,6 +831,7 @@ func (m *Model) ipcPlayPause() (tea.Cmd, ipcReply) {
 	if !ok {
 		return nil, ipcReply{ok: false, err: "no station selected"}
 	}
+	m.noise.Start()
 	return m.playStationCmd(station), ipcReply{ok: true, data: "QUEUED"}
 }
 

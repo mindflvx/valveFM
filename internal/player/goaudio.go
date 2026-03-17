@@ -12,6 +12,20 @@ import (
 	"github.com/gopxl/beep/v2/speaker"
 )
 
+var (
+	speakerOnce sync.Once
+	speakerErr  error
+)
+
+// EnsureSpeaker initializes the audio device at 44100 Hz exactly once.
+func EnsureSpeaker() error {
+	speakerOnce.Do(func() {
+		sr := beep.SampleRate(44100)
+		speakerErr = speaker.Init(sr, sr.N(time.Second/10))
+	})
+	return speakerErr
+}
+
 // GoPlayer plays MP3 HTTP streams using the high-level beep library.
 // It handles resampling automatically, fixing pitch issues with different sample rates.
 type GoPlayer struct {
@@ -30,14 +44,8 @@ func NewGoPlayer() *GoPlayer {
 }
 
 // initSpeaker initializes the audio device once.
-// We standardize on 44100Hz for all playback.
 func (g *GoPlayer) initSpeaker() error {
-	if g.initialized {
-		return nil
-	}
-	// 44100Hz sample rate, buffer size of ~100ms
-	sr := beep.SampleRate(44100)
-	if err := speaker.Init(sr, sr.N(time.Second/10)); err != nil {
+	if err := EnsureSpeaker(); err != nil {
 		return fmt.Errorf("speaker init: %w", err)
 	}
 	g.initialized = true
